@@ -29,6 +29,7 @@ pub fn get_ink_colors(ctx: &mut InlineCtx) {
 }
 
 unsafe fn dair_splatter(boma: &mut BattleObjectModuleAccessor, motion_kind: u64, id: usize) {
+    if (10..13).contains(&boma.status_frame()){ 
     if motion_kind == hash40("attack_air_lw")
         && AttackModule::is_infliction(boma, *COLLISION_KIND_MASK_HIT)
     {
@@ -67,6 +68,7 @@ unsafe fn dair_splatter(boma: &mut BattleObjectModuleAccessor, motion_kind: u64,
         );
         EffectModule::set_rate_last(boma, 0.5);
     }
+    }
 }
 
 unsafe fn roller_jump_cancel(boma: &mut BattleObjectModuleAccessor) {
@@ -98,6 +100,40 @@ unsafe fn ink_charge_cancel(boma: &mut BattleObjectModuleAccessor) {
     && boma.is_situation(*SITUATION_KIND_GROUND)
     {
         boma.change_status_req(*FIGHTER_INKLING_STATUS_KIND_CHARGE_INK_START, false);
+    }
+}
+
+pub unsafe fn squidshift(fighter: &mut L2CFighterCommon) {
+    let boma = fighter.module_accessor;
+    if StatusModule::status_kind(boma) == *FIGHTER_STATUS_KIND_TURN_RUN {
+        let kinetic_type = KineticModule::get_kinetic_type(boma);
+        let frame = MotionModule::frame(boma);
+
+        let turn_frame = 10.0; //could probably set a custom ACMD flag for this instead of making it hard coded. end_frame doesn't quite work here
+        if frame >= 1.0 && frame < 3.0 {
+            if kinetic_type != *FIGHTER_KINETIC_TYPE_MOTION {
+                KineticModule::change_kinetic(fighter.module_accessor, *FIGHTER_KINETIC_TYPE_MOTION);
+                KineticModule::enable_energy(fighter.module_accessor, *FIGHTER_KINETIC_ENERGY_ID_MOTION);
+                MotionModule::set_trans_move_speed_no_scale(fighter.module_accessor, true);
+                let sum_x = KineticModule::get_sum_speed_x(fighter.module_accessor, *KINETIC_ENERGY_RESERVE_ATTRIBUTE_MAIN);
+                sv_kinetic_energy!(
+                    reset_energy,
+                    fighter,
+                    FIGHTER_KINETIC_ENERGY_ID_MOTION,
+                    ENERGY_MOTION_RESET_TYPE_GROUND_TRANS,
+                    sum_x,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                );
+            }
+        }
+        if (frame >= turn_frame) {
+            if kinetic_type != *FIGHTER_KINETIC_TYPE_TURN_RUN {
+                KineticModule::change_kinetic(fighter.module_accessor, *FIGHTER_KINETIC_TYPE_TURN_RUN);
+            }
+        }
     }
 }
 
@@ -138,11 +174,30 @@ unsafe fn fastfall_specials(fighter: &mut L2CFighterCommon) {
     }
 }
 
+unsafe fn game_specialhiattack(boma: &mut BattleObjectModuleAccessor, status_kind: i32) {
+    if boma.is_status(*FIGHTER_INKLING_STATUS_KIND_SPECIAL_HI_ROT)
+    && boma.status_frame() > 15{
+        AttackModule::clear_all(boma);
+    }
+}
+
+unsafe fn special_hi_rot_exec(boma: &mut BattleObjectModuleAccessor, status_kind: i32) {
+    if boma.is_status(*FIGHTER_STATUS_KIND_SPECIAL_HI)
+    && boma.status_frame() < 12{
+        if ControlModule::check_button_on(boma, *CONTROL_PAD_BUTTON_ATTACK) {
+            VarModule::on_flag(boma.object(), vars::inkling::instance::SPECIAL_HI_CAN_ATTACK);
+        }
+    }
+}
+
 pub unsafe fn moveset(fighter: &mut L2CFighterCommon, boma: &mut BattleObjectModuleAccessor, id: usize, cat: [i32; 4], status_kind: i32, situation_kind: i32, motion_kind: u64, nstick_x: f32, stick_y: f32, facing: f32, frame: f32,) {
     dair_splatter(boma, motion_kind, id);
+    special_hi_rot_exec(boma, status_kind);
     roller_jump_cancel(boma);
     ink_charge_cancel(boma);
+    game_specialhiattack(boma, status_kind);
     fastfall_specials(fighter);
+   // squidshift(fighter);
 }
 
 pub extern "C" fn inkling_frame_wrapper(fighter: &mut smash::lua2cpp::L2CFighterCommon) {
